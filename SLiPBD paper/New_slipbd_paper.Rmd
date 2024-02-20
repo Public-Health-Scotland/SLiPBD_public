@@ -1,0 +1,937 @@
+---
+title: "SLiPBD Paper Results"
+author: "Denise Jennings"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, error = FALSE)
+
+source("00_paper_packages.R")
+source("00_paper_read_in_datasets.R")
+source("01_paper_setup.R")
+source("03_infant_death_check.R")
+```
+
+## Results 
+
+Following the most recent update, the cohort contained `r nrow(slipbd_database)` babies (fetuses and births) from `r length(unique(slipbd_database$pregnancy_id))` completed or ongoing pregnancies to `r length(unique(slipbd_database$mother_upi))` women. 
+
+Estimated dates of conception ranged from `r min(slipbd_database$est_date_conception)` to `r max(slipbd_database$est_date_conception)`, and end of pregnancy dates for the subset of babies from completed pregnancies ranged from `r min(slipbd_database$date_end_pregnancy, na.rm = T)` to `r max(slipbd_database$date_end_pregnancy, na.rm = T)`. 
+
+<br>
+
+<br>
+
+### **Table 3: Pregnancy outcome for all babies in the SLiPBD cohort, Scotland 2000-Dec 2023** 
+
+```{r pregnancy outcomes table}
+# Reorder fetus outcome 1 categories in line with paper format
+slipbd_database <- slipbd_database %>% 
+  mutate(fetus_outcome1 = factor(fetus_outcome1, levels = c("Live birth", "Stillbirth", "Termination", 
+                                                            "Ectopic pregnancy","Molar pregnancy", "Miscarriage",
+                                                            "Maternal death", "Unknown", "Unknown - emigrated",
+                                                         "Unknown - assumed early loss", "Ongoing")))
+
+# Count of number of fetus/babies for each outcome  
+table_3 <- slipbd_database %>%
+  group_by(fetus_outcome1) %>% 
+  summarise(N = n()) %>% 
+  ungroup() %>% 
+  
+  # Calcuate percentages based on total cohort number
+  mutate(total_pregnancies = nrow(slipbd_database),
+         outcome_percent = N/total_pregnancies*100, 
+         outcome_percent = round(outcome_percent, 2)) %>% 
+  
+  # Drop total column
+  select(-total_pregnancies) %>% 
+  mutate(outcome_percent = paste0("(", outcome_percent, ")")) %>% 
+  
+  # Combine N and percent in one column
+  unite("Number_(%)_of_babies", N, outcome_percent, sep = " ") 
+  
+  # Present data in table
+  table_3 %>% 
+  kable(col.names = c("Pregnancy outcome", "Number (%) of babies"))
+
+
+```
+
+<br>
+
+<br>
+
+### **Figure 2: Number of babies in the SLiPBD cohort, by pregnancy outcome group and year of conception, Scotland 2000-Dec 2023**
+```{r pregnancy outcomes chart}
+
+# Assign fetus outcomes into key outcome group categories
+slipbd_database <- slipbd_database %>% 
+  mutate(key_outcome_groups = case_when(fetus_outcome1 == "Miscarriage" ~ "Spontaneous early pregnancy loss",
+                                        fetus_outcome1 == "Ectopic pregnancy" ~ "Spontaneous early pregnancy loss",
+                                        fetus_outcome1 == "Molar pregnancy" ~ "Spontaneous early pregnancy loss",
+                                        fetus_outcome1 == "Unknown" ~ "Unknown and maternal death",
+                                        fetus_outcome1 == "Unknown - assumed early loss" ~ "Unknown and maternal death",
+                                        fetus_outcome1 == "Unknown - emigrated" ~ "Unknown and maternal death",
+                                        fetus_outcome1 == "Maternal death" ~ "Unknown and maternal death", 
+                                        TRUE ~ fetus_outcome1),
+         # Reorder the levels
+         key_outcome_groups = factor(key_outcome_groups, levels = c("Live birth", "Stillbirth", "Termination", 
+                                                                    "Spontaneous early pregnancy loss",
+                                                                    "Unknown and maternal death", "Ongoing")))
+
+# Then present number of babies in the SLiPBD cohort, by pregnancy outcome group and year of conception 
+figure_2 <- slipbd_database %>% 
+  mutate(conceptionyear = factor(conceptionyear)) %>% 
+  ggplot(aes(x = conceptionyear, fill = key_outcome_groups)) +
+  geom_bar() +
+  scale_x_discrete(breaks = every_nth(n = 2)) +
+  xlab("Year of conception") +
+  ylab("Number of babies") +
+  labs(fill = "Pregnancy outcomes") +
+  theme(axis.text.x = element_text(size=8)) +
+  scale_fill_manual(values = phs_colours(c("phs-purple", "phs-magenta", "phs-blue", "phs-green", "phs-graphite", "phs-teal")))  
+
+figure_2 + theme
+
+ggsave("figure_2.png", dpi = 300)
+
+```
+
+<br>
+
+<br>
+
+### **Figure 3: Gestation at end of pregnancy for babies in the SLiPBD cohort with known pregnancy outcome, Scotland 2000-Dec 2023** 
+```{r}
+# Subset data to count number of weeks gestation for pregnancy outcomes
+gest_count <- slipbd_database %>% 
+  group_by(fetus_outcome1, gest_end_pregnancy) %>% 
+  summarise(N = n()) %>% 
+  ungroup()
+gest_count <- gest_count %>% mutate(panel_no = case_when(fetus_outcome1 =="Live birth" ~ "a)",
+                                                         T~"b)"))
+# Plot number of weeks gestation at end of pregnancy by outcome 
+# For ease of viewing, create 2 charts, one with live births, the other with remaining outcomes
+
+##use facet_wrap - need to add a and b labels
+p <- gest_count %>%
+   filter(fetus_outcome1 %in% c("Live birth", "Stillbirth", "Termination", 
+                          "Ectopic pregnancy", "Molar pregnancy", "Miscarriage")) %>% 
+  ggplot(aes(x = gest_end_pregnancy, y = N, group=fetus_outcome1)) +
+  geom_line(aes(colour = fetus_outcome1), lwd = 1) +
+  facet_wrap(vars(panel_no), scales = "free_y")+
+  xlab("Number of weeks") +
+  ylab("Number of babies") +
+  #xlim(4, 44) +
+  scale_x_continuous(limit = c(4,44), 
+                         breaks = c(4,8,12, 16, 20, 24, 28, 32, 36, 40, 44))+
+  labs(colour = "Pregnancy outcome") +
+  theme_bw() +
+  theme(text = element_text(size=12),
+    legend.position = "bottom",
+        legend.justification = "left", 
+         strip.text = element_text(hjust = 0, size=16, face="bold"),
+         strip.background = element_blank(),
+        panel.grid.minor = element_blank(), 
+        panel.grid.major = element_blank(), 
+        panel.border = element_blank(), 
+        axis.line = element_line(colour = "black")
+        ) +
+  theme(legend.title = element_text(size = 10), 
+        legend.text = element_text(size=10), 
+        legend.justification = "left") +
+  scale_colour_manual(values = 
+                        phs_colours(c("phs-purple", "phs-magenta", "phs-blue",
+                                      "phs-green", "phs-rust", "phs-teal")))  
+
+p
+
+
+ggsave("figure_3_wrap.png", units = "in", width = 9, height  = 4.5, dpi = 300)
+
+
+
+rm(gest_count)
+
+```
+
+<br>
+
+<br>
+
+### **Table 4: Source of information on gestation at end of pregnancy for babies in the SLiPBD cohort with known pregnancy outcome, Scotland 2000-Dec 2023**
+
+```{r}
+# Subset a count of known pregnancy outcomes
+known_outcome_totals <- slipbd_database %>% 
+  filter(fetus_outcome1 %in% c("Live birth", "Stillbirth", "Termination", 
+                               "Ectopic pregnancy", "Molar pregnancy", "Miscarriage")) %>% 
+  group_by(fetus_outcome1) %>% 
+  summarise(N = n())
+
+# Crosstab table of pregnancy outcome and gestation ascertainment
+table_4 <- slipbd_database %>% 
+  filter(fetus_outcome1 %in% c("Live birth", "Stillbirth", "Termination", 
+                               "Ectopic pregnancy", "Molar pregnancy", "Miscarriage")) %>% 
+  group_by(fetus_outcome1, gestation_ascertainment) %>% 
+  summarise(N = n()) %>% 
+  spread(gestation_ascertainment, N) %>% 
+  ungroup() %>% 
+  
+  # Rename columns
+  rename(recorded = `Gestation recorded on end of pregnancy record`,
+         calculated = `Gestation calculated from gestation at booking`,
+         imputed = `Gestation imputed based on outcome of pregnancy`) %>% 
+  
+  # Add in total column from known outcome totals to calculate percentage for each value
+  mutate(total_number_of_babies = known_outcome_totals$N) %>% 
+  
+  # Reorder columns
+  select(fetus_outcome1, total_number_of_babies, recorded, calculated, imputed) %>% 
+  
+  # Add total row
+  adorn_totals("row") %>% 
+  
+  # Calculate percentages
+  mutate(recorded_percent = recorded/total_number_of_babies*100,
+         calculated_percent = calculated/total_number_of_babies*100,
+         imputed_percent = imputed/total_number_of_babies*100,
+         recorded_percent = round(recorded_percent, 2),
+         calculated_percent = round(calculated_percent, 2),
+         imputed_percent = round(imputed_percent, 2)) %>% 
+
+  
+# Combine numbers and percentages
+    mutate(recorded_percent = paste0("(", recorded_percent, ")"),
+           calculated_percent = paste0("(", calculated_percent, ")"),
+           imputed_percent = paste0("(", imputed_percent, ")")) %>% 
+    unite("Recorded", recorded, recorded_percent, sep = " ") %>% 
+    unite("Calculated", calculated, calculated_percent, sep = " ") %>% 
+    unite("Imputed", imputed, imputed_percent, sep = " ") 
+
+table_4 %>% 
+  kable(col.names= c("Pregnancy outcome", "Total number of babies", "Available on end of pregnancy record", "Calculated from gestation on antenatal booking record", "Imputed based on pregnancy outcome type"))  
+
+ rm(known_outcome_totals)
+ 
+```
+
+<br>
+
+<br>
+
+### **Table 5: Key maternal sociodemographic characteristics for all babies in the SLiPBD cohort, Scotland 2000-Dec 2023**
+
+```{r maternal age table}
+
+# Create new variable with age categories
+slipbd_database <- slipbd_database %>%
+  mutate(mat_age_cat = case_when(between(maternal_age_conception, 0, 19) ~ "<20",
+                                 between(maternal_age_conception, 20, 24) ~ "20-24",
+                                 between(maternal_age_conception, 25, 29) ~ "25-29",
+                                 between(maternal_age_conception, 30, 34) ~ "30-34",
+                                 between(maternal_age_conception, 35, 39) ~ "35-39",
+                                 maternal_age_conception >= 40  ~ "≥40",
+                                 is.na(maternal_age_conception) ~ "Unknown/missing"))
+
+
+levels_order <- c("<20", "20-24", "25-29", "30-34", "35-39", "≥40", "Unknown/missing")
+
+slipbd_database$mat_age_cat <- factor(slipbd_database$mat_age_cat, levels = levels_order)
+
+
+# Function to count and add percentage columns for key maternal sociodemographics
+sociodemographic_counts <- function(data, variable){
+  
+  data %>% 
+  group_by({{variable}}) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  mutate(percent = n/nrow(data)*100,
+         percent = round(percent, 2))
+}
+
+# Count of fetus/babies for each age category
+maternal_age <- sociodemographic_counts(slipbd_database, mat_age_cat)
+
+# Present in table
+maternal_age %>% 
+  kable(col.names = c("Maternal age at conception (years)", "Number of babies", "%"))
+
+# Calculation of overall median (min-max) maternal age at conception
+median_table <- slipbd_database %>% 
+  mutate(median = median(maternal_age_conception, na.rm = T),
+         min = min(maternal_age_conception, na.rm = T), 
+         max = max(maternal_age_conception, na.rm = T)) %>% 
+  select(median, min, max) %>% 
+  slice(1)
+
+# Meadian (min-max) age table
+median_table %>% 
+  kable(col.names = c("Median", "Min", "Max"))
+
+
+# Add count for number of pregnancies for each age category
+# Create subset for number of pregnancies including age category variable
+pregnancies_cohort <- slipbd_database %>% 
+  group_by(pregnancy_id) %>% 
+  filter(fetus_marker == 1) %>% 
+  ungroup() 
+
+# Count or pregnancies by age category
+pregnancies_maternal_age <- sociodemographic_counts(pregnancies_cohort, mat_age_cat)
+
+# Present in table
+pregnancies_maternal_age %>% 
+  kable(col.names = c("Maternal age at conception (years)", "Number of pregnancies", "%"))
+
+# Calculation of median (min-max) maternal age at conception for number of pregnancies 
+pregnancies_median_table <- pregnancies_cohort %>% 
+  mutate(median = median(maternal_age_conception, na.rm = T),
+         min = min(maternal_age_conception, na.rm = T), 
+         max = max(maternal_age_conception, na.rm = T)) %>% 
+  select(median, min, max) %>% 
+  slice(1)
+
+# Meadian (min-max) age table for number of pregnancies
+pregnancies_median_table %>% 
+  kable(col.names = c("Median", "Min", "Max"))
+
+```
+
+```{r maternal simd}
+# Count of maternal SIMD at booking or at end of pregnancy 
+# Create new variable to identify if simd is present at booking or and end of pregnancy
+slipbd_database <- slipbd_database %>% 
+  mutate(any_simd = case_when(is.na(maternal_SIMD_end_preg) ~ maternal_SIMD_booking,
+                              maternal_SIMD_end_preg == "Unknown" ~ maternal_SIMD_booking,
+                              TRUE ~ maternal_SIMD_end_preg))
+
+# Count number of fetus/babies and add percentages
+maternal_simd <- sociodemographic_counts(slipbd_database, any_simd)
+
+# Present in table
+maternal_simd %>% 
+  kable(col.names = c("Maternal deprivation level (SIMD quintile)", "Number of babies", "%"))
+
+# Follow above steps to add count for number of pregnancies
+pregnancies_cohort <- pregnancies_cohort %>% 
+  mutate(any_simd = case_when(is.na(maternal_SIMD_end_preg) ~ maternal_SIMD_booking,
+                              maternal_SIMD_end_preg == "Unknown" ~ maternal_SIMD_booking,
+                              TRUE ~ maternal_SIMD_end_preg))
+
+pregnancies_maternal_simd <- sociodemographic_counts(pregnancies_cohort, any_simd)
+
+# Pregnancies table
+pregnancies_maternal_simd %>% 
+  kable(col.names = c("Maternal deprivation level (SIMD quintile)", "Number of pregnanices", "%"))
+
+```
+
+
+```{r maternal ethnicity table}
+
+# Code all NAs as unknown/missing
+slipbd_database <- slipbd_database %>% 
+  mutate(maternal_ethnicity = case_when(is.na(maternal_ethnicity) ~ "5 Unknown/missing",
+                                        TRUE ~ maternal_ethnicity))
+# Count of maternal ethnicity         
+maternal_ethnicity <- sociodemographic_counts(slipbd_database, maternal_ethnicity) 
+
+# Maternal ethnicity table
+maternal_ethnicity %>% 
+  kable(col.names = c("Maternal ethnicity", "Number of babies", "%"))
+
+
+# Count for number of pregnancies 
+# Code all NAs as unknown/missing in number of pregnancies subset
+pregnancies_cohort <- pregnancies_cohort %>% 
+  mutate(maternal_ethnicity = case_when(is.na(maternal_ethnicity) ~ "5 Unknown/missing",
+                                        TRUE ~ maternal_ethnicity))
+
+# Count of maternal ethnicity for number of pregnancies subset       
+pregnancies_maternal_ethnicity <- sociodemographic_counts(pregnancies_cohort, maternal_ethnicity) 
+
+pregnancies_maternal_ethnicity %>% 
+  kable(col.names = c("Maternal ethnicity", "Number of pregnancies", "%"))
+
+```
+
+<br>
+
+<br>
+
+##  N babies and (separately) pregnancies with/without mat ethnicity. Conceptions from 1 Jan 2022 onwards
+```{r}
+# Breakdown of maternal ethnicity (just available/missing) for all babies with date of conception from 2022 onwards by pregnancy outcome.
+
+# Create subset of babies from 2022 onwards and ethnicity flag variable
+ethnicity <- slipbd_database %>% 
+  filter(year(est_date_conception) >= 2022) %>% 
+  mutate(ethnicity_flag = case_when(is.na(maternal_ethnicity) ~ "Missing", 
+                                    maternal_ethnicity == "5 Unknown/missing" ~ "Missing",
+                                    TRUE ~ "Available")) 
+#min(ethnicity$est_date_conception)
+#table(ethnicity$ethnicity_flag)
+
+# Total count of outcomes from 2022 onwards (to calculate percentage below)
+outcome_totals_ethnicity_cohort <- ethnicity %>% 
+  group_by(key_outcome_groups) %>% 
+  summarise(total = n()) %>% 
+  ungroup()
+
+# Count of ethnicity flag by key outcome variables
+ethnicity_by_outcome <- ethnicity %>% 
+  group_by(key_outcome_groups, ethnicity_flag) %>% 
+  summarise(N = n()) %>% 
+  ungroup()
+
+# Join with full outcome count
+ethnicity_by_outcome <- full_join(ethnicity_by_outcome, outcome_totals_ethnicity_cohort)
+
+# Calculate percent of outcomes with ethnicity available/missing
+ethnicity_by_outcome <- ethnicity_by_outcome %>% 
+  mutate(percent = N/total*100,
+         percent = round(percent, 2))
+
+ethnicity_by_outcome %>% 
+  select(-total) %>% 
+  kable(col.names = c("Pregnancy outcome", "Ethnicity status", "N of babies", "%"))
+
+# Repeat above steps to add count for number of pregnancies
+# Use number of pregnancies subset, filter for 2022 onwards and create ethnicity flag
+pregnancies_ethnicity <- pregnancies_cohort %>% 
+  filter(year(est_date_conception) >= 2022) %>% 
+  mutate(ethnicity_flag = case_when(is.na(maternal_ethnicity) ~ "Missing", 
+                                    maternal_ethnicity == "5 Unknown/missing" ~ "Missing",
+                                    TRUE ~ "Available"))
+
+# Total count of outcomes from 2022 onwards (to calcualte percentage below)
+pregnancies_outcome_totals <- pregnancies_ethnicity %>% 
+  group_by(key_outcome_groups) %>% 
+  summarise(total = n()) %>% 
+  ungroup()
+
+# Count of ethnicity flag by key outcome variables
+pregnancies_ethnicity_by_outcome <- pregnancies_ethnicity %>% 
+  group_by(key_outcome_groups, ethnicity_flag) %>% 
+  summarise(N = n()) %>% 
+  ungroup()
+
+# Join with full outcome count
+pregnancies_ethnicity_by_outcome <- full_join(pregnancies_ethnicity_by_outcome, pregnancies_outcome_totals)
+
+# Calculate percent of outcomes with ethnicity available/missing
+pregnancies_ethnicity_by_outcome <- pregnancies_ethnicity_by_outcome %>% 
+  mutate(percent = N/total*100,
+         percent = round(percent, 2))
+
+pregnancies_ethnicity_by_outcome %>% 
+  select(-total) %>% 
+  kable(col.names = c("Pregnancy outcome", "Ethnicity status", "N of pregnancies", "%"))
+
+rm(outcome_totals_ethnicity_cohort, pregnancies_outcome_totals)
+
+```
+
+<br>
+
+<br> 
+
+### **Figure 4: Distribution of maternal age at conception for all babies in the SLiPBD cohort, Scotland 2000-Dec 2023**
+
+```{r maternal age chart}
+figure_4 <- slipbd_database %>% 
+  ggplot(aes(x = maternal_age_conception)) +
+  geom_histogram(fill = "#3F3685", col = "black", binwidth = 1) +
+  xlab("Maternal age at conception") +
+  ylab("Number of babies")
+
+figure_4 + theme
+
+ggsave("figure_4.png", dpi = 300)
+```
+
+
+<br>
+
+<br>
+
+### **Table 6: Key infant sociodemographic characteristics for live births in the SLiPBD cohort, Scotland 2000-Dec 2023**
+
+```{r baby sex}
+
+# Count of baby sex for live births with percentage column
+baby_sex <- slipbd_database %>% 
+  filter(fetus_outcome1 == "Live birth") %>% 
+  group_by(baby_sex) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  mutate(percent = n/sum(n)*100,
+         percent = round(percent, 2))
+
+baby_sex%>% 
+  kable(col.names = c("Baby sex", "Number of live births", "%"))
+
+```
+
+```{r baby ethnicity}
+# Count of baby ethnicity for live births with percentage column
+baby_ethnicity <- slipbd_database %>% 
+  filter(fetus_outcome1 == "Live birth") %>% 
+  group_by(baby_ethnicity) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  mutate(percent = n/sum(n)*100,
+         percent = round(percent, 2))
+
+baby_ethnicity %>% 
+  kable(col.names = c("Baby ethnicity", "Number of live births", "%"))
+```
+
+<br>
+
+<br>
+
+### Chart of completness for baby ethnicity by year of conception (live births only)
+
+```{r}
+# Chart of completeness of baby ethnicity by year of conception for live births only . 
+total_records <- slipbd_database %>% 
+  filter(fetus_outcome1 == "Live birth") %>% 
+  group_by(conceptionyear) %>% 
+  summarise(total_records_per_year = n()) %>% 
+  ungroup()
+
+baby_ethnicity_year <- slipbd_database %>% 
+  filter(fetus_outcome1 == "Live birth") %>% 
+  mutate(baby_ethnicity_flag = case_when(is.na(baby_ethnicity) ~ "missing", 
+                                    baby_ethnicity == "5 Unknown/missing" ~ "missing",
+                                    TRUE ~ "available")) %>% 
+  filter(baby_ethnicity_flag == "available") %>% 
+  group_by(conceptionyear, baby_ethnicity_flag) %>% 
+  summarise(n = n()) %>% 
+  ungroup() 
+
+available_baby_ethnicity <- full_join(total_records, baby_ethnicity_year)
+
+baby_ethnicity_completeness <- available_baby_ethnicity %>% 
+  #filter(baby_ethnicity_flag == "available") %>% 
+  ggplot(aes(x = factor(conceptionyear), y = n/total_records_per_year*100, group = baby_ethnicity_flag)) +
+  geom_line(aes(colour = "Ethnicity recorded")) +
+  xlab("Year of conception") +
+  ylab("% of live births with baby ethniciy available") +
+  ylim(0, 100) +
+  scale_x_discrete(breaks = every_nth(n = 2)) +
+  theme(legend.title = element_blank())
+
+baby_ethnicity_completeness + theme
+
+ggsave("baby_ethnicity_completeness.png", dpi = 300)
+
+rm(total_records, baby_ethnicity_year, available_baby_ethnicity)
+
+```
+
+
+N babies with/without baby ethnicity born from 1 Jan 2022 onwards
+```{r}
+# Breakdown of baby ethnicity (just available/missing) for live births with date of conception from 2022 onwards.
+# Create baby ethnicity flag
+baby_ethnicity <- ethnicity %>% 
+  filter(fetus_outcome1 == "Live birth") %>% 
+  mutate(baby_ethnicity_flag = case_when(baby_ethnicity == "5 Unknown/missing" ~ "Missing",
+                                    TRUE ~ "Available"))
+
+# Count number of live births with ethnicity and add percentage  
+count_baby_ethnicity_flag <- baby_ethnicity %>% 
+  group_by(baby_ethnicity_flag) %>% 
+  summarise(N = n()) %>% 
+  ungroup() %>% 
+  mutate(percent = N/nrow(baby_ethnicity)*100,
+         percent = round(percent, 2))
+
+count_baby_ethnicity_flag %>% 
+  kable(col.names = c("Ethnicity status", "N of babies", "%"))
+
+
+# Repeat above steps to count number of pregnancies
+# Use number of pregnancies subset, filter and create new baby ethnicity flag variable
+pregnancies_baby_ethnicity <- pregnancies_ethnicity %>% 
+  filter(fetus_outcome1 == "Live birth") %>% 
+   mutate(baby_ethnicity_flag = case_when(baby_ethnicity == "5 Unknown/missing" ~ "Missing",
+                                    TRUE ~ "Available"))
+
+# Count number of pregnancies (live births only) with ethnicity and add percentage 
+count_pregnancies_baby_ethnicity <- pregnancies_baby_ethnicity %>% 
+  group_by(baby_ethnicity_flag) %>% 
+  summarise(N = n()) %>% 
+  ungroup() %>% 
+    mutate(percent = N/nrow(pregnancies_baby_ethnicity)*100,
+         percent = round(percent, 2))
+
+
+count_pregnancies_baby_ethnicity %>% 
+  kable(col.names = c("Ethnicity status", "N of pregnancies", "%"))
+
+rm(baby_ethnicity, pregnancies_baby_ethnicity)
+
+```
+
+
+```{r gestation table}
+
+# Subset for live births and create variable for gestation categories 
+gestation_live_births <- slipbd_database %>% 
+  filter(fetus_outcome1 == "Live birth") %>% 
+  mutate(gestation_categories = case_when(gest_end_pregnancy <32 ~ "Very preterm (<32)",
+                                          between(gest_end_pregnancy, 32, 36) ~ "Moderately preterm (32-36)",
+                                          between(gest_end_pregnancy, 37, 41) ~ "Term (37-41)",
+                                          gest_end_pregnancy >= 42 ~ "Post-term (≥42)",
+                                          TRUE ~ "Unknown/missing"),
+         gestation_categories = factor(gestation_categories, levels = c("Very preterm (<32)", "Moderately preterm (32-36)", 
+                                                                        "Term (37-41)", "Post-term (≥42)",
+                                                                        "Unknown/missing")))
+
+
+# Count total number of babies per categories and add percentage column
+gestation_categories_count <- gestation_live_births %>% 
+  group_by(gestation_categories) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  mutate(percent = n/sum(n)*100,
+         percent = round(percent, 2)) 
+
+gestation_categories_count %>% 
+  kable(col.names = c("Gestation at birth (completed weeks)", "N of all LBs", "%"))
+
+# Calculate median, min and max values for whole cohort of live births
+gestation_median_min_max <- gestation_live_births %>% 
+   mutate(median = median(gest_end_pregnancy),
+         min = min(gest_end_pregnancy), 
+         max = max(gest_end_pregnancy)) %>% 
+  select(median, min, max) %>% 
+  slice(1)
+
+gestation_median_min_max  %>% 
+  kable(col.names = c("Median", "Min", "Max"))
+
+
+# Repeat steps for subset splitting births into single or multiple pregnancies
+# Create plurality variable 
+gestation_plurality <- gestation_live_births %>% 
+  mutate(plurality = if_else(number_of_babies == 1, "Singleton", "Multiple"))
+  
+single_multiple_gestation <- gestation_plurality %>% 
+group_by(plurality, gestation_categories) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = plurality,
+              values_from = n) %>% 
+  mutate(percent_single = Singleton/sum(Singleton)*100,
+         percent_multiple = Multiple/sum(Multiple)*100,
+         percent_single = round(percent_single, 2),
+         percent_multiple = round(percent_multiple, 2)) %>% 
+  select(gestation_categories, Singleton, percent_single, Multiple, percent_multiple)
+
+single_multiple_gestation %>% 
+  kable(col.names = c("Gestation at birth (completed weeks)", "N of LB Singleton", "% of LB Singleton", "N of LB Multiple", "% of LB Multiple"))
+
+# Subset for singletons and calculate median, min and max values
+singleton_gestation_median_min_max <- gestation_plurality %>% 
+  filter(plurality == "Singleton") %>% 
+   mutate(median = median(gest_end_pregnancy),
+         min = min(gest_end_pregnancy), 
+         max = max(gest_end_pregnancy)) %>% 
+  select(median, min, max) %>% 
+  slice(1)
+
+singleton_gestation_median_min_max  %>% 
+  kable(col.names = c("Singleton Median gestation", "Min", "Max"))
+
+# Subset for multiples and calculate median, min and max values
+multiple_gestation_median_min_max <- gestation_plurality %>% 
+  filter(plurality == "Multiple") %>% 
+   mutate(median = median(gest_end_pregnancy),
+         min = min(gest_end_pregnancy), 
+         max = max(gest_end_pregnancy)) %>% 
+  select(median, min, max) %>% 
+  slice(1)
+
+multiple_gestation_median_min_max  %>% 
+  kable(col.names = c("Multiple Median gestation", "Min", "Max"))
+
+rm(gestation_live_births, gestation_plurality)
+
+```
+
+```{r birthweight table}
+
+# Filter for live births and create variable for birthweight categories (removing unrealistic weights by categorising them as Unknown/missing)
+birthweight_live_births <- slipbd_database %>% 
+  filter(fetus_outcome1 == "Live birth") %>% 
+  mutate(birthweight = case_when(birthweight <100 ~ NA, 
+                                 birthweight >7999 ~ NA,
+                                 T ~ birthweight),
+         birthweight_cat = case_when(between(birthweight, 100, 1499) ~ "Very low (<1500)",
+                                       between(birthweight, 1500, 2499) ~ "Low (1500-2499)",
+                                       between(birthweight, 2500, 3999) ~ "Typical (2500-2499)",
+                                       between(birthweight, 4000, 7999) ~ "High (≥4000)",
+                                       TRUE ~ "Unknown/missing"), 
+        birthweight_cat = factor(birthweight_cat, levels = c("Very low (<1500)", "Low (1500-2499)", "Typical (2500-2499)", "High (≥4000)", "Unknown/missing")))
+
+
+# Count total number of babies per birthweight category and add percentage column (whole cohort of live births)
+birthweight <- birthweight_live_births %>% 
+  group_by(birthweight_cat) %>% 
+  summarise(N = n()) %>% 
+  ungroup() %>% 
+  mutate(percent = N/sum(N)*100,
+         percent = round(percent, 2))
+
+birthweight %>% 
+  kable(col.names = c("Birthweight", "N of all LBs", "%"))
+
+# Calculate median, min and max values for whole cohort of live births
+birthweight_median_min_max <- birthweight_live_births %>% 
+   mutate(median = median(birthweight, na.rm = T),
+         min = min(birthweight, na.rm = T), 
+         max = max(birthweight, na.rm = T)) %>% 
+  select(median, min, max) %>% 
+  slice(1)
+
+birthweight_median_min_max  %>% 
+  kable(col.names = c("Median", "Min", "Max"))
+
+# Create subset for singletons and multiples and count number of babies per birthweight category  
+birthweight_plurality <- birthweight_live_births %>% 
+  mutate(plurality = if_else(number_of_babies == 1, "Singleton", "Multiple")) 
+
+single_multiple_birthweight <- birthweight_plurality %>% 
+  group_by(plurality, birthweight_cat) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  
+  # Pivot wider to separate singleton and multiple births
+  pivot_wider(names_from = plurality,
+              values_from = n) %>% 
+  mutate(percent_single = Singleton/sum(Singleton)*100,
+         percent_multiple = Multiple/sum(Multiple)*100,
+         percent_single = round(percent_single, 2),
+         percent_multiple = round(percent_multiple, 2)) %>% 
+  select(birthweight_cat, Singleton, percent_single, Multiple, percent_multiple)
+    
+single_multiple_birthweight %>% 
+  kable(col.names = c("Birthweight", "N of LB Singleton", "% of LB Singleton", "N of LB Multiple", "% of LB Multiple"))
+
+
+# Subset for singletons and calculate median, min and max values
+singleton_birthweight_median_min_max <- birthweight_plurality %>% 
+  filter(plurality == "Singleton") %>% 
+   mutate(median = median(birthweight, na.rm = T),
+         min = min(birthweight, na.rm = T), 
+         max = max(birthweight, na.rm = T)) %>% 
+  select(median, min, max) %>% 
+  slice(1)
+
+singleton_birthweight_median_min_max  %>% 
+  kable(col.names = c("Singleton Median birthweight", "Min", "Max"))
+
+# Subset for multiples and calculate median, min and max values
+multiple_birthweight_median_min_max <- birthweight_plurality %>% 
+  filter(plurality == "Multiple") %>% 
+   mutate(median = median(birthweight, na.rm = T),
+         min = min(birthweight, na.rm = T), 
+         max = max(birthweight, na.rm = T)) %>% 
+  select(median, min, max) %>% 
+  slice(1)
+
+multiple_birthweight_median_min_max  %>% 
+  kable(col.names = c("Multiple Median birthweight", "Min", "Max"))
+
+rm(birthweight_live_births, birthweight_plurality)
+```
+
+<br>
+
+<br>
+
+## **Table 7: Completeness of valid maternal CHI number for all babies in the SLiPBD cohort by pregnancy outcome, Scotland 2000-Dec 2023** 
+
+```{r}
+
+# Check and count number of valid maternal CHI grouped by outcome
+# Count of totals to calculate percent
+outcome_totals <- slipbd_database %>% 
+  group_by(fetus_outcome1) %>% 
+  summarise(N = n())
+
+valid_maternal_chi <- slipbd_database %>% 
+  filter(chi_check(mother_upi) == "Valid CHI") %>% 
+  group_by(fetus_outcome1) %>% 
+  summarise(number_of_valid = n()) %>% 
+  ungroup() %>% 
+  mutate(percent_of_valid = number_of_valid/outcome_totals$N*100,
+         percent_of_valid = round(percent_of_valid, 2)) %>% 
+  adorn_totals("row")
+    
+valid_maternal_chi %>% 
+  kable(col.names = c("Pregnancy outcome", "Number (%) with a valid maternal CHI number available", "%"))
+
+rm(outcome_totals)
+
+```
+
+<br>
+
+<br>
+
+## Paper text 
+```{r}
+# Check number of valid baby CHI for live births
+valid_baby_chi <- slipbd_database %>% 
+  filter(chi_check(baby_chi) == "Valid CHI") %>% 
+  group_by(fetus_outcome1) %>% 
+  summarise(number_of_valid = n())
+  
+valid_baby_chi %>% 
+  kable(col.names = c("Pregnancy outcome", "Number of valid CHIs"))
+
+# Check number of linked and dropped SMR02 records for live and stillbirths
+
+# Filter final variables data for live and stillbirths
+all_variables_births <- all_variables %>%
+  filter(fetus_outcome1 == "Live birth" | fetus_outcome1 == "Stillbirth") 
+
+# Filter SMR02 for live and stillbirths
+smr02_births <- smr02_data %>%
+  filter(smr02_outcome_type == "Live birth" | smr02_outcome_type == "Stillbirth")
+
+# Find event ids that are in SMR02 and the final variables dataset         
+smr02_births_linked <- smr02_births %>%
+  filter(event_id %in% all_variables_births$births_smr02_live_births) %>% 
+  group_by(smr02_outcome_type) %>% 
+  summarise(n = n())
+
+smr02_births_linked %>% 
+  kable(col.names = c("Pregnancy outcome", "Linked records"))
+
+# Check number of SMR02 delivery records (live and stillbirths)
+nrow(smr02_births)
+
+# Check number of dropped records
+nrow(smr02_births) - sum(smr02_births_linked$n)
+
+# Check infant death records for deaths not linked to a corresponding live birth within the SLiPBD. 
+not_in_cohort <- not_in_cohort %>% 
+  filter(year_of_registration != 1999 | is.na(year_of_registration))
+nrow(not_in_cohort)
+
+# Check unlinked for ones with no nrs triplicate id + 1 for NRS triplicate ID that is invalid (B00000)
+sum(is.na(not_in_cohort$nrs_triplicate_id)) + 1
+
+rm(all_variables_births) 
+  
+```
+
+### **Supplementary appendix 2: Number of babies in SLiPBD with known pregnancy outcome compared to number of end of pregnancy events recorded in source records, Scotland 2000-Dec 2023** 
+```{r}
+
+# Function to count outcomes in each dataset
+single_outcome_count <- function(data, outcome){
+  
+  data %>% 
+    group_by({{outcome}}) %>% 
+    summarise(N = n())
+}
+
+duel_outcome_count <- function(outcome)
+  
+  slipbd_database %>% 
+  filter(fetus_outcome1 == {{outcome}} | fetus_outcome2 == {{outcome}}) 
+
+
+# Slipbd outcome count
+slipbd_outcome_count <- single_outcome_count(slipbd_database, fetus_outcome1)
+
+slipbd_outcome_count %>% 
+  kable(col.names = c("SLiPBD Pregnancy outcome", "N"))
+
+
+# Live births in NRS
+nrslb_count <- single_outcome_count(nrs_live_births, nrslb_outcome_type)
+
+nrslb_count %>% 
+  kable(col.names = c("NRS LB Pregnancy outcome", "N"))
+
+lb_duel_outcome_count <- duel_outcome_count("Live birth")
+nrow(lb_duel_outcome_count)
+
+
+# Stillbirths in NRS
+nrs_sb_count <- single_outcome_count(nrs_sb, nrssb_outcome_type)
+
+nrs_sb_count %>% 
+  kable(col.names = c("NRS SB Pregnancy outcome", "N"))
+
+sb_duel_outcome_count <- duel_outcome_count("Stillbirth")
+nrow(sb_duel_outcome_count)
+
+
+
+# Terminations in ToPS/AAS
+tops_count <- single_outcome_count(tops_aas, aas_outcome_type)
+
+tops_count %>% 
+  kable(col.names = c("ToPS Pregnancy outcome", "N"))
+
+#max(tops_aas$aas_date_of_termination)
+#max(slipbd_database$date_end_pregnancy, na.rm = T)
+
+# termination in slipbd with duel outcomes
+duel_termination_count <- duel_outcome_count("Termination")
+nrow(duel_termination_count)
+
+
+# Outcome count in SMR01
+smr01_count <- single_outcome_count(smr01, smr01_outcome_type)
+
+smr01_count %>% 
+  kable(col.names = c("SMR01 Pregnancy outcome", "N"))
+
+# Outcome count in SMR02
+smr02_nonlive_count <- single_outcome_count(smr02_nonlive, smr02_outcome_type)
+
+smr02_nonlive_count %>% 
+  kable(col.names = c("SMR02 Pregnancy outcome", "N"))
+
+# Duel outcome ectopic pregnancies
+duel_ectopic_count <- duel_outcome_count("Ectopic pregnancy")
+nrow(duel_ectopic_count)
+
+# Duel outcome molar pregnancies
+duel_molar_count <- duel_outcome_count("Molar pregnancy")
+nrow(duel_molar_count)
+
+# Duel outcome miscarriages
+duel_miscarriage_count <- duel_outcome_count("Miscarriage")
+nrow(duel_miscarriage_count)
+
+# Minimum dates for all datasets.
+min(nrs_live_births$nrslb_date_of_birth)
+min(nrs_sb$nrssb_date_of_birth)
+min(tops_aas$aas_date_of_termination)
+min(smr01$smr01_cis_admission_date)
+min(smr02_data$smr02_admission_date)
+min(smr02_nonlive$smr02_admission_date)
+
+
+```
+
+
+
+
+
+
